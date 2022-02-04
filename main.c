@@ -65,6 +65,54 @@ char *variableExpansion(char *string)
 	return buffer;
 }
 
+char **stringToArray(char *string, int *ptr)
+{
+
+	// the number of string addresses in the array starts at 1
+	// so the array of string addresses only has room for 1 string
+	int numOfStrings = 1;
+
+	// creates an array of string addresses, so an array of strings
+	// with the size of one string address
+	char **arr = malloc(numOfStrings * sizeof(char *));
+	// first parse of the string passed in
+	char *token = strtok(string, " ");
+
+	// this will indicate if the character # was the first part of the input
+	if (token[0] == '#')
+	{
+		*ptr = 1;
+	}
+
+	int index = 0;
+
+	// parse the string until it reaches the null
+	while (token != NULL)
+	{
+		// place the address of the parsed string into the arr of string addresses
+		arr[index] = token;
+		index++;
+
+		// checks to see if there are more string addresses than our array of strings can hold
+		if (index >= numOfStrings)
+		{
+			// increase the number of string addresses the array of strings can hold by 1
+			numOfStrings++;
+			arr = realloc(arr, numOfStrings * sizeof(char *));
+		}
+		// at the end, we will have increases our array of strings by 1, so we now fill the last index with the NULL character
+		token = strtok(NULL, " ");
+
+		// checks each string for variable expansion
+		if (token != NULL)
+		{
+			token = variableExpansion(token);
+		}
+	}
+	arr[index] = NULL;
+	return arr;
+}
+
 void changeDir(char *path)
 {
 
@@ -81,8 +129,6 @@ void changeDir(char *path)
 		path = pwd->pw_dir;
 	}
 
-	//noEndLine(path);
-
 	printf("\n%s\n", getcwd(s, 100));
 
 	// if the chdir does not return 0 then error
@@ -93,89 +139,90 @@ void changeDir(char *path)
 	printf("%s\n", getcwd(s, 100));
 }
 
-void processTokensToString(char *token, char *stringArr[], int *index)
+void printArr(char **arr)
 {
-	//noEndLine(token);
-	char *s = variableExpansion(token);
-	stringArr[*index] = token;
-	*index++;
-	printf("\nThis is index %d\n", *index);
-}
-
-void correctlySizeArr(char *arr1[], char *arr2[], int *index) {
-
+	for (int i = 0; i < sizeof(arr) - 1; i++)
+	{
+		printf("\n%s\n", arr[i]);
+	}
 }
 
 int main(void)
 {
-	
 	size_t size = 2048;
-	char *token;
 	char *usrInput = calloc(size, sizeof(char));
+	int commentCheck = 0;
 
 	// infinite loop
 	while (1)
 	{
 
 		printf(": ");
-		getline(&usrInput, &size, stdin);
-		// printf("you entered: %s strleng: %lu this is weird\n", usrInput, strlen(usrInput));
+		int result = getline(&usrInput, &size, stdin);
 
-		noEndLine(usrInput); //added just now
+		//printf("Here is your input:%d\n", result);
 
-		token = strtok(usrInput, " ");
-		//noEndLine(token);
-
-		if (strcmp(token, "cd") == 0 || strcmp(token, "cd\n") == 0)
+		// getline returns 1 when there is no input, so if there is input then process string
+		if (result != 1)
 		{
-			token = strtok(NULL, " ");
-			if (token == NULL)
-			{
-				changeDir("~");
-			}
-			else
-			{
-				changeDir(token);
-			}
-			// for other programs we want to run execlp list of string, and p is search the paths
-			// this will end parsing loop
-		}
-		else
-		{
-			int childStatus = -10;
-			pid_t childPid = fork();
-			if (childPid == -1)
-			{
-				perror("fork() failed!");
-				exit(1);
-			}
-			else if (childPid == 0)
-			{
-				char *arr[512];
-				int index = 0;
-				int *idxP = &index;
 
-				while (token != NULL) {
-					processTokensToString(token, arr, idxP);
-					token = strtok(NULL, " ");
+			// gets rid of the \n at the end that gets returned with getline
+			noEndLine(usrInput);
+
+			// puts all the strings into a string array args
+			char **args = stringToArray(usrInput, &commentCheck);
+
+			// if commentCheck is not equal to 0 then skip
+			if (commentCheck == 0)
+			{
+				//printArr(args);
+				if (strcmp(args[0], "cd") == 0)
+				{
+
+					if (args[1] == NULL)
+					{
+						changeDir("~");
+					}
+					else
+					{
+						changeDir(args[1]);
+					}
 				}
+				else
+				{
+					int childStatus = -10;
+					pid_t childPid = fork();
+					if (childPid == -1)
+					{
+						perror("fork() failed!");
+						exit(1);
+					}
+					else if (childPid == 0)
+					{
 
-				// we know the number of arguments based on how many times token runs
+						// we know the number of arguments based on how many times token runs
 
-				// i need to loop through all the tokens and turn them into an array of strings, then pass it into the excelp
-				// Child process executes this branch
-				// execlp();
-				return 0;
-			}
-			else
-			{
-				// The parent process executes this branch
-				childPid = waitpid(childPid, &childStatus, 0);
-				printf("In the parent process waitpid returned value %d\n", childPid);
+						// i need to loop through all the tokens and turn them into an array of strings, then pass it into the excelp
+						// Child process executes this branch
+
+						execvp(args[0], args);
+						return 0;
+					}
+					else
+					{
+						// The parent process executes this branch
+						childPid = waitpid(childPid, &childStatus, 0);
+						printf("\nIn the parent process waitpid returned value %d\n", childPid);
+					}
+				}
+				free(args);
 			}
 		}
+
+		// reset comment check
+		commentCheck = 0;
 	}
-	
+	free(usrInput);
 
 	return 0;
 }
