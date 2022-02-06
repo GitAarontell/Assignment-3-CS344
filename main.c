@@ -5,67 +5,10 @@
 #include <unistd.h>
 #include <string.h>
 #include <pwd.h>
+#include <fcntl.h>
+#include "a3Functions.h"
 
-// processes the string
-void noEndLine(char *string)
-{
-	// gets size of string
-	int size = strlen(string);
-
-	// if the string has a \n character at the end then get rid of it and change size
-	if (string[size - 1] == '\n')
-	{
-		string[size - 1] = '\0';
-		size = size - 1;
-	}
-}
-
-// handles variable expansion for $$ symbols
-char *variableExpansion(char *string)
-{
-
-	pid_t pid = getpid();
-	int size = strlen(string);
-	char *buffer = calloc(20, sizeof(char));
-	char numBuffer[20];
-	int bufferIdx = 0;
-
-	// convert pid to string
-	snprintf(numBuffer, 20, "%d", pid);
-
-	// loops through each character of string
-	for (int i = 0; i < size; i++)
-	{
-		// if current character in string is $ and next character is also $
-		if (string[i] == '$' && string[i + 1] == '$')
-		{
-			// then loop through each character in numBuffer (pid)
-			for (int j = 0; j < strlen(numBuffer); j++)
-			{
-				// add each number to buffer
-				buffer[bufferIdx] = numBuffer[j];
-				// increment buffer index
-				bufferIdx++;
-			}
-			// increment i here to skip over first $ symbol
-			// then the for loop will increment i again to skip over second $ symbol
-			i++;
-
-			// continue immediatly starts next loop
-			continue;
-		}
-
-		// add current char in string to buffer string
-		buffer[bufferIdx] = string[i];
-		bufferIdx++;
-	}
-	// printf("\n%s length: %lu  pid: %s\n", buffer, strlen(buffer), numBuffer);
-
-	// free buffer memory
-	return buffer;
-}
-
-char **stringToArray(char *string, int *ptr)
+char **stringToArray(char *string, int *ptr, char **fileName, int *chgStdOut, int *chgStdIn, int *backgroundIndicator)
 {
 
 	// the number of string addresses in the array starts at 1
@@ -77,6 +20,7 @@ char **stringToArray(char *string, int *ptr)
 	char **arr = malloc(numOfStrings * sizeof(char *));
 	// first parse of the string passed in
 	char *token = strtok(string, " ");
+	token = variableExpansion(token);
 
 	// this will indicate if the character # was the first part of the input
 	if (token[0] == '#')
@@ -89,19 +33,60 @@ char **stringToArray(char *string, int *ptr)
 	// parse the string until it reaches the null
 	while (token != NULL)
 	{
-		// place the address of the parsed string into the arr of string addresses
-		arr[index] = token;
-		index++;
-
-		// checks to see if there are more string addresses than our array of strings can hold
-		if (index >= numOfStrings)
+		// first check to see if change stdout symbol is the current token
+		if (strcmp(token, ">") == 0)
 		{
-			// increase the number of string addresses the array of strings can hold by 1
-			numOfStrings++;
-			arr = realloc(arr, numOfStrings * sizeof(char *));
+			// if so, check the next token to make sure it is not Null
+			if ((token = strtok(NULL, " ")) != NULL)
+			{
+				// add token to filename
+				fileName[0] = token;
+				// indicate requirement to change std out so child process later can do that
+				*chgStdOut = 0;
+			}
+			else
+			{
+				printf("\nThere is no fileName\n");
+			}
+			// this is checking to see if the change stdin symbol is there
 		}
-		// at the end, we will have increases our array of strings by 1, so we now fill the last index with the NULL character
-		token = strtok(NULL, " ");
+		else if (strcmp(token, "<") == 0)
+		{
+			// if so, check the next token value to make sure it exists and put it in file name string
+			if ((token = strtok(NULL, " ")) != NULL)
+			{
+				fileName[1] = token;
+				// changes standin indicator so child process knows to change input before running exec function
+				*chgStdIn = 0;
+			}
+			else
+			{
+				printf("\nThere is no fileName\n");
+			}
+		} /*else if(strcmp(token, "&") == 0) {
+			*backgroundIndicator = 0;
+		}*/
+		// add tokens to array
+		else
+		{
+			// place the address of the parsed string into the arr of string addresses
+			arr[index] = token;
+			index++;
+
+			// checks to see if there are more string addresses than our array of strings can hold
+			if (index >= numOfStrings)
+			{
+				// increase the number of string addresses the array of strings can hold by 1
+				numOfStrings++;
+				arr = realloc(arr, numOfStrings * sizeof(char *));
+			}
+		}
+		// checks for null here because it might already be null if the it read a > or <, since token is used again there to check
+		// for filename, and if it doesn't exist then token will just be null
+		if (token != NULL)
+		{
+			token = strtok(NULL, " ");
+		}
 
 		// checks each string for variable expansion
 		if (token != NULL)
@@ -109,58 +94,49 @@ char **stringToArray(char *string, int *ptr)
 			token = variableExpansion(token);
 		}
 	}
-	arr[index] = NULL;
+		// this looks at the last entered token after the loop has ended and checks to see if its the & symbol
+		if (strcmp(arr[index-1], "&") == 0)
+		{
+			// if it is then set backgroundIndicator to 0
+			*backgroundIndicator = 0;
+			// set where the & symbol was to NULL so it is not included in the array
+			arr[index-1] = NULL;
+
+		}
+		// at the end, we will have increases our array of strings by 1, so we now fill the last index with the NULL character
+		else
+		{
+			arr[index] = NULL;
+		}
+		
+	//arr[index] = NULL;
 	return arr;
-}
-
-void changeDir(char *path)
-{
-
-	char s[100];
-	uid_t uid = getuid();
-	struct passwd *pwd = getpwuid(uid);
-
-	// getline adds a newline to the end of the string, so to get rid of newline character add \0 to the end
-	// only if the path was the last argument passed in the command line
-
-	// gets the home path and sets it to path
-	if (strcmp(path, "~") == 0)
-	{
-		path = pwd->pw_dir;
-	}
-
-	printf("\n%s\n", getcwd(s, 100));
-
-	// if the chdir does not return 0 then error
-	if (chdir(path) != 0)
-	{
-		printf("No such file or directory\n");
-	}
-	printf("%s\n", getcwd(s, 100));
-}
-
-void printArr(char **arr)
-{
-	for (int i = 0; i < sizeof(arr) - 1; i++)
-	{
-		printf("\n%s\n", arr[i]);
-	}
 }
 
 int main(void)
 {
 	size_t size = 2048;
+	pid_t childPid = -1;
+	int childStatus = 0;
+	int fileDescriptorWrite;
+	int fileDescriptorRead;
+	int initiateExitStatus = -1;
+	int backgroundIndicator = -1;
 	char *usrInput = calloc(size, sizeof(char));
+
+	// fileName[0] is for stdOut file name, and fileName[1] is for stdIn file name
+	char **fileName = malloc(2 * sizeof(char *));
+
 	int commentCheck = 0;
 
 	// infinite loop
 	while (1)
 	{
 
-		printf(": ");
+		printf("\n: ");
 		int result = getline(&usrInput, &size, stdin);
 
-		//printf("Here is your input:%d\n", result);
+		// printf("Here is your input:%d\n", result);
 
 		// getline returns 1 when there is no input, so if there is input then process string
 		if (result != 1)
@@ -169,56 +145,81 @@ int main(void)
 			// gets rid of the \n at the end that gets returned with getline
 			noEndLine(usrInput);
 
+			// these are used in stringToArray to check whether there is a < or > and if so sets them to 0
+			// for use by handleRedirection in child process
+			int standOut = -1;
+			int standIn = -1;
+
 			// puts all the strings into a string array args
-			char **args = stringToArray(usrInput, &commentCheck);
+			char **argv = stringToArray(usrInput, &commentCheck, fileName, &standOut, &standIn, &backgroundIndicator);
 
 			// if commentCheck is not equal to 0 then skip
 			if (commentCheck == 0)
 			{
-				//printArr(args);
-				if (strcmp(args[0], "cd") == 0)
-				{
+				// this will open files for read or write in the parent process
+				checkFileOpen(fileName[0], fileName[1], standOut, standIn, &fileDescriptorWrite, &fileDescriptorRead, &initiateExitStatus, backgroundIndicator);
 
-					if (args[1] == NULL)
-					{
-						changeDir("~");
-					}
-					else
-					{
-						changeDir(args[1]);
-					}
+				if (strcmp(argv[0], "cd") == 0)
+				{
+					handleDirChange(argv[1]);
+				}
+				else if (strcmp(argv[0], "status") == 0)
+				{
+					// printf("\nthis is status: %s\n", argv[0]);
+					printStatus(childPid, WEXITSTATUS(childStatus));
+				}
+				else if (strcmp(argv[0], "exit") == 0)
+				{
 				}
 				else
 				{
-					int childStatus = -10;
-					pid_t childPid = fork();
+					childPid = fork();
 					if (childPid == -1)
 					{
 						perror("fork() failed!");
 						exit(1);
+						// this will run if an open file fails, and will set exit status to 1 without exiting shell
+					}
+					else if (childPid == 0 && initiateExitStatus == 1)
+					{
+						exit(1);
 					}
 					else if (childPid == 0)
 					{
-
-						// we know the number of arguments based on how many times token runs
-
-						// i need to loop through all the tokens and turn them into an array of strings, then pass it into the excelp
+						// checkFileOpen(fileName[0], fileName[1], standOut, standIn, &fileDescriptorWrite, &fileDescriptorRead);
+						handleRedirection(standOut, standIn, fileDescriptorWrite, fileDescriptorRead, backgroundIndicator);
 						// Child process executes this branch
-
-						execvp(args[0], args);
-						return 0;
+						execvp(argv[0], argv);
+						perror("\ncommand Not Found");
+						exit(1);
 					}
 					else
 					{
+						
 						// The parent process executes this branch
 						childPid = waitpid(childPid, &childStatus, 0);
+						
+						/*
+						if (WIFEXITED(childStatus))
+						{
+							printf("\nChild %d exited normally with status %d\n", childPid, WEXITSTATUS(childStatus));
+						}
+						else
+						{
+							printf("\nChild %d exited abnormally due to signal %d\n", childPid, WTERMSIG(childStatus));
+						}
 						printf("\nIn the parent process waitpid returned value %d\n", childPid);
+						*/
 					}
 				}
-				free(args);
+				// reset values
+				backgroundIndicator = -1;
+				initiateExitStatus = -1;
+				standOut = -1;
+				standIn = -1;
+				free(argv);
 			}
 		}
-
 		// reset comment check
 		commentCheck = 0;
 	}
