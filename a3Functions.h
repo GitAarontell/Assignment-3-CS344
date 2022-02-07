@@ -8,7 +8,7 @@
 #include <fcntl.h>
 
 void handleExit(int arr[]) {
-	
+
 	exit(0);
 }
 
@@ -83,7 +83,7 @@ char *variableExpansion(char *string)
 	return buffer;
 }
 
-char **stringToArray(char *string, int *ptr, char **fileName, int *chgStdOut, int *chgStdIn, int *backgroundIndicator)
+char **stringToArray(char *string, int *ptr, char **fileName, int *chgStdOut, int *chgStdIn, int *backgroundIndicator, int mode)
 {
 
 	// the number of string addresses in the array starts at 1
@@ -173,7 +173,10 @@ char **stringToArray(char *string, int *ptr, char **fileName, int *chgStdOut, in
 		if (strcmp(arr[index-1], "&") == 0)
 		{
 			// if it is then set backgroundIndicator to 0
-			*backgroundIndicator = 0;
+			// if mode is 0 then don't set background indicator
+			if (mode == 0) {
+				*backgroundIndicator = 0;
+			}
 			// set where the & symbol was to NULL so it is not included in the array
 			arr[index-1] = NULL;
 

@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include "a3Functions.h"
 
+int mode = 0;
 /*
  * sets every value in array passed in to -10, used for maintaining array of pid values
  */
@@ -74,8 +75,17 @@ void searchFinishedPIDs(int arr[], int length)
 	}
 }
 
-void handleSigInt(int signo)
+void handleSIGTSTP(int signo)
 {
+	char *entering = "\nEntering foreground-only mode (& is now ignored)\n";
+	char *exiting = "\nExiting foreground-only mode\n";
+	if (mode == 0) {
+		write(STDOUT_FILENO, entering, 31);
+		mode = -1;
+	} else if (mode == -1) {
+		write(STDOUT_FILENO, exiting, 51);
+		mode = 0;
+	}
 }
 
 int main(void)
@@ -98,9 +108,12 @@ int main(void)
 	int initiateExitStatus = -1;
 	int backgroundIndicator = -1;
 
-	struct sigaction ignore_action = {0};
+	struct sigaction ignore_action = {0}, SIGTSTP_action = {0};
 	ignore_action.sa_handler = SIG_IGN;
 	sigaction(SIGINT, &ignore_action, NULL);
+	
+	SIGTSTP_action.sa_handler = handleSIGTSTP;
+	sigaction(SIGTSTP, &SIGTSTP_action, NULL);
 
 	// fileName[0] is for stdOut file name, and fileName[1] is for stdIn file name
 	char **fileName = malloc(2 * sizeof(char *));
@@ -131,7 +144,7 @@ int main(void)
 			int standIn = -1;
 
 			// puts all the strings into a string array args
-			char **argv = stringToArray(usrInput, &commentCheck, fileName, &standOut, &standIn, &backgroundIndicator);
+			char **argv = stringToArray(usrInput, &commentCheck, fileName, &standOut, &standIn, &backgroundIndicator, mode);
 
 			// if commentCheck is not equal to 0 then skip
 			if (commentCheck == 0)
@@ -171,6 +184,7 @@ int main(void)
 					{
 						// checkFileOpen(fileName[0], fileName[1], standOut, standIn, &fileDescriptorWrite, &fileDescriptorRead);
 						handleRedirection(standOut, standIn, fileDescriptorWrite, fileDescriptorRead, backgroundIndicator);
+						sigaction(SIGTSTP, &ignore_action, NULL);
 						// if background indicator is not active then change sigint to default result
 						if (backgroundIndicator != 0)
 						{
