@@ -8,125 +8,107 @@
 #include <fcntl.h>
 #include "a3Functions.h"
 
-char **stringToArray(char *string, int *ptr, char **fileName, int *chgStdOut, int *chgStdIn, int *backgroundIndicator)
+/*
+ * sets every value in array passed in to -10, used for maintaining array of pid values
+ */
+void setArr(int arr[], int length)
 {
-
-	// the number of string addresses in the array starts at 1
-	// so the array of string addresses only has room for 1 string
-	int numOfStrings = 1;
-
-	// creates an array of string addresses, so an array of strings
-	// with the size of one string address
-	char **arr = malloc(numOfStrings * sizeof(char *));
-	// first parse of the string passed in
-	char *token = strtok(string, " ");
-	token = variableExpansion(token);
-
-	// this will indicate if the character # was the first part of the input
-	if (token[0] == '#')
+	for (int i = 0; i < length; i++)
 	{
-		*ptr = 1;
+		arr[i] = -10;
 	}
+}
 
-	int index = 0;
-
-	// parse the string until it reaches the null
-	while (token != NULL)
+/*
+ * adds pid value to array passed in
+ */
+void addToArr(int arr[], int num, int length)
+{
+	// adds pid value to any empty part of the array which will be indicated
+	// as empty by having the value -10
+	for (int i = 0; i < length; i++)
 	{
-		// first check to see if change stdout symbol is the current token
-		if (strcmp(token, ">") == 0)
+		if (arr[i] == -10)
 		{
-			// if so, check the next token to make sure it is not Null
-			if ((token = strtok(NULL, " ")) != NULL)
-			{
-				// add token to filename
-				fileName[0] = token;
-				// indicate requirement to change std out so child process later can do that
-				*chgStdOut = 0;
-			}
-			else
-			{
-				printf("\nThere is no fileName\n");
-			}
-			// this is checking to see if the change stdin symbol is there
-		}
-		else if (strcmp(token, "<") == 0)
-		{
-			// if so, check the next token value to make sure it exists and put it in file name string
-			if ((token = strtok(NULL, " ")) != NULL)
-			{
-				fileName[1] = token;
-				// changes standin indicator so child process knows to change input before running exec function
-				*chgStdIn = 0;
-			}
-			else
-			{
-				printf("\nThere is no fileName\n");
-			}
-		} /*else if(strcmp(token, "&") == 0) {
-			*backgroundIndicator = 0;
-		}*/
-		// add tokens to array
-		else
-		{
-			// place the address of the parsed string into the arr of string addresses
-			arr[index] = token;
-			index++;
-
-			// checks to see if there are more string addresses than our array of strings can hold
-			if (index >= numOfStrings)
-			{
-				// increase the number of string addresses the array of strings can hold by 1
-				numOfStrings++;
-				arr = realloc(arr, numOfStrings * sizeof(char *));
-			}
-		}
-		// checks for null here because it might already be null if the it read a > or <, since token is used again there to check
-		// for filename, and if it doesn't exist then token will just be null
-		if (token != NULL)
-		{
-			token = strtok(NULL, " ");
-		}
-
-		// checks each string for variable expansion
-		if (token != NULL)
-		{
-			token = variableExpansion(token);
+			arr[i] = num;
+			break;
 		}
 	}
-		// this looks at the last entered token after the loop has ended and checks to see if its the & symbol
-		if (strcmp(arr[index-1], "&") == 0)
-		{
-			// if it is then set backgroundIndicator to 0
-			*backgroundIndicator = 0;
-			// set where the & symbol was to NULL so it is not included in the array
-			arr[index-1] = NULL;
+}
 
-		}
-		// at the end, we will have increases our array of strings by 1, so we now fill the last index with the NULL character
-		else
+/*
+ * searches for pids that are finished and prints out information when they are finished
+ */
+void searchFinishedPIDs(int arr[], int length)
+{
+	// declaring variables for waitpid
+	pid_t bgChildPid = -100;
+	int bgChildStatus = -100;
+
+	// looks through the array containing pids
+	for (int i = 0; i < length; i++)
+	{
+		// if any value is not -10 then that is a pid we are waiting for
+		if (arr[i] != -10)
 		{
-			arr[index] = NULL;
+			// set bgChildPid to that pid so we can check if it is done
+			bgChildPid = arr[i];
+			bgChildPid = waitpid(bgChildPid, &bgChildStatus, WNOHANG);
+
+			// if waitpid returns 0 then it is done
+			if (bgChildPid != 0)
+			{
+				if (WIFEXITED(bgChildStatus))
+				{
+					printf("\nbackground pid %d is done: exit value %d\n", bgChildPid, WEXITSTATUS(bgChildStatus));
+				}
+				else
+				{
+					printf("\nbackground pid %d is done: terminated by signal %d\n", bgChildPid, WTERMSIG(bgChildStatus));
+				}
+
+				// reset arrays value to -10, since process with that PID is done
+				arr[i] = -10;
+			}
 		}
-		
-	//arr[index] = NULL;
-	return arr;
+	}
+}
+
+void handleSigInt(int signo)
+{
 }
 
 int main(void)
 {
+	// for foreground processes, kept seperate from background
+	// process variables to ensure status works everytime
 	size_t size = 2048;
 	pid_t childPid = -1;
 	int childStatus = 0;
+
+	// background process variables
+	pid_t bgChildPid = -100;
+	int bgChildStatus = -100;
+	int PIDArr[100];
+	setArr(PIDArr, sizeof(PIDArr) / sizeof(int));
+
+	// variables that deal with opening and closing files
 	int fileDescriptorWrite;
 	int fileDescriptorRead;
 	int initiateExitStatus = -1;
 	int backgroundIndicator = -1;
-	char *usrInput = calloc(size, sizeof(char));
+
+	struct sigaction ignore_action = {0};
+	ignore_action.sa_handler = SIG_IGN;
+	sigaction(SIGINT, &ignore_action, NULL);
 
 	// fileName[0] is for stdOut file name, and fileName[1] is for stdIn file name
 	char **fileName = malloc(2 * sizeof(char *));
 
+	// allocate memory for usrinput
+	char *usrInput = calloc(size, sizeof(char));
+
+	// used to check if a line is a comment of not
 	int commentCheck = 0;
 
 	// infinite loop
@@ -135,8 +117,6 @@ int main(void)
 
 		printf("\n: ");
 		int result = getline(&usrInput, &size, stdin);
-
-		// printf("Here is your input:%d\n", result);
 
 		// getline returns 1 when there is no input, so if there is input then process string
 		if (result != 1)
@@ -166,10 +146,13 @@ int main(void)
 				else if (strcmp(argv[0], "status") == 0)
 				{
 					// printf("\nthis is status: %s\n", argv[0]);
+
 					printStatus(childPid, WEXITSTATUS(childStatus));
 				}
 				else if (strcmp(argv[0], "exit") == 0)
 				{
+					// make sure to add functionality to terminate all processes before exiting shell!!!!!!!!!!!!!!!!!!!!!!!!!!!
+					handleExit(PIDArr);
 				}
 				else
 				{
@@ -188,6 +171,12 @@ int main(void)
 					{
 						// checkFileOpen(fileName[0], fileName[1], standOut, standIn, &fileDescriptorWrite, &fileDescriptorRead);
 						handleRedirection(standOut, standIn, fileDescriptorWrite, fileDescriptorRead, backgroundIndicator);
+						// if background indicator is not active then change sigint to default result
+						if (backgroundIndicator != 0)
+						{
+							ignore_action.sa_handler = SIG_DFL;
+							sigaction(SIGINT, &ignore_action, NULL);
+						}
 						// Child process executes this branch
 						execvp(argv[0], argv);
 						perror("\ncommand Not Found");
@@ -195,24 +184,43 @@ int main(void)
 					}
 					else
 					{
-						
-						// The parent process executes this branch
-						childPid = waitpid(childPid, &childStatus, 0);
-						
-						/*
-						if (WIFEXITED(childStatus))
+						if (backgroundIndicator == 0)
 						{
-							printf("\nChild %d exited normally with status %d\n", childPid, WEXITSTATUS(childStatus));
+							// set bgChild to childPiD
+							bgChildPid = childPid;
+
+							printf("\nbackground pid is %d", bgChildPid);
+
+							bgChildPid = waitpid(bgChildPid, &bgChildStatus, WNOHANG);
+
+							// if background process hasn't finished then add pid to array
+							if (bgChildPid == 0)
+							{
+								addToArr(PIDArr, childPid, sizeof(PIDArr) / sizeof(int));
+							}
+							else
+							{
+								printf("\nbackground pid: %d is done: exit value %d", bgChildPid, WEXITSTATUS(bgChildStatus));
+							}
 						}
 						else
 						{
-							printf("\nChild %d exited abnormally due to signal %d\n", childPid, WTERMSIG(childStatus));
+							// The parent process executes this branch
+							childPid = waitpid(childPid, &childStatus, 0);
 						}
-						printf("\nIn the parent process waitpid returned value %d\n", childPid);
-						*/
+						// will print out signal that caused foreground child to exit
+						if (WIFSIGNALED(childStatus))
+						{
+							printf("\nterminated by signal %d\n", WTERMSIG(childStatus));
+							// !!!!!!! solution to exit, put the childPid that terminate abnormally in another array, the only
+							// background processes are background ones still running, which are already stored, and then ones
+							// terminated abnormally which is shown here, run through them killing them one by one
+							childStatus = 0;
+						}
 					}
 				}
 				// reset values
+				searchFinishedPIDs(PIDArr, sizeof(PIDArr) / sizeof(int));
 				backgroundIndicator = -1;
 				initiateExitStatus = -1;
 				standOut = -1;

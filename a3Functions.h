@@ -7,6 +7,11 @@
 #include <pwd.h>
 #include <fcntl.h>
 
+void handleExit(int arr[]) {
+	
+	exit(0);
+}
+
 void printStatus(pid_t childPid, int status)
 {
 	if (childPid == -1)
@@ -76,6 +81,111 @@ char *variableExpansion(char *string)
 
 	// free buffer memory
 	return buffer;
+}
+
+char **stringToArray(char *string, int *ptr, char **fileName, int *chgStdOut, int *chgStdIn, int *backgroundIndicator)
+{
+
+	// the number of string addresses in the array starts at 1
+	// so the array of string addresses only has room for 1 string
+	int numOfStrings = 1;
+
+	// creates an array of string addresses, so an array of strings
+	// with the size of one string address
+	char **arr = malloc(numOfStrings * sizeof(char *));
+	// first parse of the string passed in
+	char *token = strtok(string, " ");
+	token = variableExpansion(token);
+
+	// this will indicate if the character # was the first part of the input
+	if (token[0] == '#')
+	{
+		*ptr = 1;
+	}
+
+	int index = 0;
+
+	// parse the string until it reaches the null
+	while (token != NULL)
+	{
+		// first check to see if change stdout symbol is the current token
+		if (strcmp(token, ">") == 0)
+		{
+			// if so, check the next token to make sure it is not Null
+			if ((token = strtok(NULL, " ")) != NULL)
+			{
+				// add token to filename
+				fileName[0] = token;
+				// indicate requirement to change std out so child process later can do that
+				*chgStdOut = 0;
+			}
+			else
+			{
+				printf("\nThere is no fileName\n");
+			}
+			// this is checking to see if the change stdin symbol is there
+		}
+		else if (strcmp(token, "<") == 0)
+		{
+			// if so, check the next token value to make sure it exists and put it in file name string
+			if ((token = strtok(NULL, " ")) != NULL)
+			{
+				fileName[1] = token;
+				// changes standin indicator so child process knows to change input before running exec function
+				*chgStdIn = 0;
+			}
+			else
+			{
+				printf("\nThere is no fileName\n");
+			}
+		} /*else if(strcmp(token, "&") == 0) {
+			*backgroundIndicator = 0;
+		}*/
+		// add tokens to array
+		else
+		{
+			// place the address of the parsed string into the arr of string addresses
+			arr[index] = token;
+			index++;
+
+			// checks to see if there are more string addresses than our array of strings can hold
+			if (index >= numOfStrings)
+			{
+				// increase the number of string addresses the array of strings can hold by 1
+				numOfStrings++;
+				arr = realloc(arr, numOfStrings * sizeof(char *));
+			}
+		}
+		// checks for null here because it might already be null if the it read a > or <, since token is used again there to check
+		// for filename, and if it doesn't exist then token will just be null
+		if (token != NULL)
+		{
+			token = strtok(NULL, " ");
+		}
+
+		// checks each string for variable expansion
+		if (token != NULL)
+		{
+			token = variableExpansion(token);
+		}
+	}
+		// this looks at the last entered token after the loop has ended and checks to see if its the & symbol
+		if (strcmp(arr[index-1], "&") == 0)
+		{
+			// if it is then set backgroundIndicator to 0
+			*backgroundIndicator = 0;
+			// set where the & symbol was to NULL so it is not included in the array
+			arr[index-1] = NULL;
+
+		}
+		// at the end, we will have increases our array of strings by 1, so we now fill the last index with the NULL character
+		else
+		{
+			arr[index] = NULL;
+		}
+		
+	//arr[index] = NULL;
+	return arr;
 }
 
 /*
